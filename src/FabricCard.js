@@ -6,7 +6,7 @@ const FabricCard = ({ fabric }) => {
 
   const handleCardClick = () => {
   //  alert(`The fabric ID is: ${fabric.id}`);  // <-- show alert
-    //console.log("Navigating to fabric with ID:", fabric.id); // optional console log
+    console.log("Navigating to fabric with ID:", fabric.id); // optional console log
     navigate(`/fabric/${fabric.id}`);          // navigate to detail page
   };
 

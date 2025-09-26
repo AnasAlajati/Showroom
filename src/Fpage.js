@@ -6,23 +6,15 @@ import {
   getDoc,
   updateDoc,
   arrayUnion,
-  arrayRemove
+  arrayRemove,
 } from "firebase/firestore";
 import { db, storage } from "./Firebase";
 import {
   ref,
   uploadBytesResumable,
   getDownloadURL,
-  deleteObject
+  deleteObject,
 } from "firebase/storage";
-import { motion } from "framer-motion";
-
-/*
-  Notes:
-  - Zoom/pan removed. Clicking an image now opens a simple modal showing a larger version.
-  - All edit/upload/delete functionality preserved exactly as before.
-  - No external zoom library required.
-*/
 
 const FPage = () => {
   const { fabricId } = useParams();
@@ -39,7 +31,7 @@ const FPage = () => {
   const [newMainImage, setNewMainImage] = useState(null);
   const [savingEdits, setSavingEdits] = useState(false);
 
-  // simple image modal state (replaces complex zoom/lightbox)
+  // simple image modal
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [imageModalUrl, setImageModalUrl] = useState(null);
 
@@ -75,7 +67,7 @@ const FPage = () => {
     fetchFabricData();
   }, [fabricId]);
 
-  // ---------- Upload helper (unchanged behavior) ----------
+  // ---------- Upload helper ----------
   const handleUpload = async (fileList, collectionKey) => {
     if (!fileList || fileList.length === 0) return;
     setUploading(true);
@@ -85,15 +77,16 @@ const FPage = () => {
 
       for (const file of files) {
         const safeName = `${Date.now()}_${file.name}`;
-        const storageRef = ref(storage, `fabrics/${fabricId}/${collectionKey}/${safeName}`);
+        const storageRef = ref(
+          storage,
+          `fabrics/${fabricId}/${collectionKey}/${safeName}`
+        );
         const uploadTask = uploadBytesResumable(storageRef, file);
 
         await new Promise((resolve, reject) => {
           uploadTask.on(
             "state_changed",
-            () => {
-              /* optional progress hooks */
-            },
+            () => {},
             (err) => reject(err),
             async () => {
               const url = await getDownloadURL(uploadTask.snapshot.ref);
@@ -104,16 +97,12 @@ const FPage = () => {
         });
       }
 
-      // append to Firestore array
       const docRef = doc(db, "Fabrics", fabricId);
-      await updateDoc(docRef, {
-        [collectionKey]: arrayUnion(...urls)
-      });
+      await updateDoc(docRef, { [collectionKey]: arrayUnion(...urls) });
 
-      // update local state immediately
       setFabric((prev) => ({
         ...prev,
-        [collectionKey]: [...(prev?.[collectionKey] || []), ...urls]
+        [collectionKey]: [...(prev?.[collectionKey] || []), ...urls],
       }));
     } catch (err) {
       console.error("Upload error:", err);
@@ -123,11 +112,12 @@ const FPage = () => {
     }
   };
 
-  // ---------- Delete logic (unchanged behavior) ----------
+  // ---------- Delete logic ----------
   const handleDeleteImage = async (imageUrl, collectionKey) => {
-    const confirmed = window.confirm("Delete this image from the collection? This action cannot be undone.");
+    const confirmed = window.confirm("Delete this image?");
     if (!confirmed) return;
     setDeletingUrl(imageUrl);
+
     try {
       try {
         const matches = imageUrl.match(/\/o\/([^?]+)/);
@@ -140,19 +130,15 @@ const FPage = () => {
           await deleteObject(possibleRef).catch(() => {});
         }
       } catch (err) {
-        console.warn("Storage deletion attempt failed (continuing to remove URL from Firestore):", err);
+        console.warn("Storage deletion attempt failed (continuing):", err);
       }
 
-      // remove URL from Firestore array
       const docRef = doc(db, "Fabrics", fabricId);
-      await updateDoc(docRef, {
-        [collectionKey]: arrayRemove(imageUrl)
-      });
+      await updateDoc(docRef, { [collectionKey]: arrayRemove(imageUrl) });
 
-      // update UI
       setFabric((prev) => ({
         ...prev,
-        [collectionKey]: (prev?.[collectionKey] || []).filter((u) => u !== imageUrl)
+        [collectionKey]: (prev?.[collectionKey] || []).filter((u) => u !== imageUrl),
       }));
     } catch (err) {
       console.error("Delete failed:", err);
@@ -162,10 +148,8 @@ const FPage = () => {
     }
   };
 
-  // ---------- Edit main name + main image (unchanged behavior) ----------
-  const handleMainImagePick = (file) => {
-    setNewMainImage(file);
-  };
+  // ---------- Edit name + main image ----------
+  const handleMainImagePick = (file) => setNewMainImage(file);
 
   const handleSaveEdits = async () => {
     if (!fabric) return;
@@ -207,9 +191,9 @@ const FPage = () => {
     setEditMode(false);
   };
 
-  // ---------- Simple image modal helpers (replaces zoom/lightbox) ----------
-  const openImageModal = (imageUrl) => {
-    setImageModalUrl(imageUrl || null);
+  // ---------- Image modal ----------
+  const openImageModal = (url) => {
+    setImageModalUrl(url);
     setImageModalOpen(true);
   };
 
@@ -227,7 +211,7 @@ const FPage = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [imageModalOpen]);
 
-  // ---------- Render collection (call openImageModal on click) ----------
+  // ---------- Render collection ----------
   const renderImageCollection = (title, images, collectionKey) => {
     const hasImages = images && images.length > 0;
     if (!hasImages && !editMode) return null;
@@ -235,13 +219,9 @@ const FPage = () => {
     return (
       <section className="my-12">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-gray-800 uppercase tracking-wide">{title}</h2>
-
+          <h2 className="text-2xl font-bold text-gray-800 uppercase">{title}</h2>
           {editMode && (
-            <label
-              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border shadow-sm text-sm cursor-pointer hover:bg-gray-50"
-              title={`Add images to ${title}`}
-            >
+            <label className="px-3 py-1 rounded-full bg-white border text-sm cursor-pointer">
               <input
                 type="file"
                 accept="image/*"
@@ -249,164 +229,99 @@ const FPage = () => {
                 className="hidden"
                 onChange={(e) => handleUpload(e.target.files, collectionKey)}
               />
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-              </svg>
-              <span className="text-gray-700">Add</span>
+              Add
             </label>
           )}
         </div>
 
         {hasImages ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 justify-items-center items-center">
             {images.map((imgUrl, idx) => (
-              <motion.div
+              <div
                 key={idx}
-                className="relative overflow-hidden rounded-2xl shadow-lg bg-gray-50 cursor-pointer"
-                whileHover={{ scale: 1.02 }}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.35, delay: idx * 0.04 }}
+                className="relative flex items-center justify-center rounded-xl overflow-hidden bg-transparent"
               >
                 <button
                   onClick={() => openImageModal(imgUrl)}
-                  className="block w-full p-0 border-0 bg-transparent"
+                  className="block p-0 border-0 bg-transparent"
                   aria-label="Open image"
                 >
-                  <div className="w-full h-[420px] bg-gray-100 flex items-center justify-center">
-                    <img
-                      src={imgUrl}
-                      alt={`${title} ${idx + 1}`}
-                      className="w-full h-full object-contain"
-                      style={{ maxHeight: "420px" }}
-                    />
-                  </div>
+                  <img
+                    src={imgUrl}
+                    alt={`${title} ${idx + 1}`}
+                    className="max-w-full max-h-[70vh] object-contain mx-auto"
+                  />
                 </button>
 
                 {editMode && (
-                  <div className="absolute top-3 right-3">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!deletingUrl) handleDeleteImage(imgUrl, collectionKey);
-                      }}
-                      disabled={!!deletingUrl}
-                      className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/90 hover:bg-white text-red-600 shadow"
-                      title="Delete image"
-                    >
-                      {deletingUrl === imgUrl ? (
-                        <svg className="h-5 w-5 animate-spin text-red-600" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!deletingUrl) handleDeleteImage(imgUrl, collectionKey);
+                    }}
+                    disabled={!!deletingUrl}
+                    className="absolute top-3 right-3 bg-white/90 p-2 rounded-full text-red-600"
+                  >
+                    ✕
+                  </button>
                 )}
-              </motion.div>
+              </div>
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-gray-200 p-12 text-center bg-white">
-            <p className="text-gray-500 mb-4">No images yet for {title.toLowerCase()}.</p>
-            <div className="flex items-center justify-center">
-              <label className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 text-white text-sm cursor-pointer hover:bg-blue-700">
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => handleUpload(e.target.files, collectionKey)}
-                />
-                Upload images
-              </label>
-            </div>
+          <div className="border border-dashed border-gray-200 p-12 text-center bg-white">
+            <p className="text-gray-500">No images yet for {title.toLowerCase()}.</p>
           </div>
         )}
       </section>
     );
   };
 
-  if (loading) return <div className="text-center mt-20 text-lg">Loading...</div>;
+  if (loading) return <div className="text-center mt-20">Loading...</div>;
   if (error) return <div className="text-center mt-20 text-red-600">{error}</div>;
   if (!fabric) return null;
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10">
-      {/* Top bar: title + subtle Edit toggle */}
+    <div className="px-6 py-10">
+      {/* Header */}
       <div className="flex items-start justify-between mb-10">
-        <div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight mb-3">
-            {fabric.name}
-          </h1>
-          <p className="text-sm text-gray-500">Showroom — collections preview</p>
-        </div>
-
-        {/* Edit toggle */}
-        <div>
-          <button
-            onClick={() => {
-              setEditMode((s) => {
-                const next = !s;
-                if (next) setEditName(fabric?.name || "");
-                return next;
-              });
-            }}
-            className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-sm font-medium border shadow-sm transition ${
-              editMode ? "bg-red-50 border-red-200 text-red-700" : "bg-white border-gray-200 text-gray-700"
-            }`}
-            title={editMode ? "Exit edit mode" : "Edit"}
-          >
-            {editMode ? (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Close
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-                </svg>
-                Edit
-              </>
-            )}
-          </button>
-        </div>
+        <h1 className="text-4xl font-extrabold text-gray-900">{fabric.name}</h1>
+        <button
+          onClick={() => {
+            setEditMode((s) => {
+              const next = !s;
+              if (next) setEditName(fabric?.name || "");
+              return next;
+            });
+          }}
+          className={`px-3 py-1 rounded-lg text-sm font-medium border ${
+            editMode ? "bg-red-50 text-red-700" : "bg-white text-gray-700"
+          }`}
+        >
+          {editMode ? "Close" : "Edit"}
+        </button>
       </div>
 
-      {/* Main image and edit controls */}
-      <div className="text-center mb-12">
-        <div className="inline-block">
-          {fabric.mainImage ? (
-            <motion.button
-              onClick={() => openImageModal(fabric.mainImage)}
-              className="focus:outline-none rounded-xl overflow-hidden shadow-md"
-              whileHover={{ scale: 1.02 }}
-            >
-              <motion.img
-                src={fabric.mainImage}
-                alt={fabric.name}
-                className="mx-auto max-h-48 w-auto object-contain rounded-xl border border-gray-100"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.5 }}
-                style={{ display: "block" }}
-              />
-            </motion.button>
-          ) : (
-            <div className="mx-auto w-full max-w-md h-40 bg-gray-100 flex items-center justify-center rounded-xl text-gray-500">
-              No Main Image
-            </div>
-          )}
-        </div>
+      {/* Main image */}
+      <div className="flex justify-center mb-12">
+        {fabric.mainImage ? (
+          <button
+            onClick={() => openImageModal(fabric.mainImage)}
+            className="rounded-xl overflow-hidden flex items-center justify-center"
+            aria-label="Open main image"
+          >
+            <img
+              src={fabric.mainImage}
+              alt={fabric.name}
+              className="max-w-full max-h-[60vh] object-contain mx-auto"
+            />
+          </button>
+        ) : (
+          <div className="mx-auto w-full max-w-md h-40 bg-gray-100 flex items-center justify-center rounded-xl text-gray-500">
+            No Main Image
+          </div>
+        )}
 
-        {/* EDIT PANEL: edit name + change main image */}
         {editMode && (
           <div className="mt-4 flex flex-col sm:flex-row items-center gap-3 justify-center">
             <input
@@ -417,7 +332,7 @@ const FPage = () => {
               placeholder="Fabric name"
             />
 
-            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-white border cursor-pointer text-sm">
+            <label className="px-3 py-2 rounded-md bg-white border cursor-pointer text-sm">
               <input
                 type="file"
                 accept="image/*"
@@ -427,16 +342,13 @@ const FPage = () => {
                   if (f) handleMainImagePick(f);
                 }}
               />
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-              </svg>
-              <span>{newMainImage ? newMainImage.name : "Change main image"}</span>
+              {newMainImage ? newMainImage.name : "Change main image"}
             </label>
 
             <div className="flex gap-2">
               <button
                 onClick={handleSaveEdits}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md shadow-sm"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md"
                 disabled={savingEdits}
               >
                 {savingEdits ? "Saving..." : "Save"}
@@ -458,30 +370,22 @@ const FPage = () => {
       {renderImageCollection("Women's Collection", fabric.womenCollection, "womenCollection")}
       {renderImageCollection("Kids' Collection", fabric.kidsCollection, "kidsCollection")}
 
-      {/* uploading indicator */}
+      {/* Uploading indicator */}
       {uploading && (
-        <div className="fixed bottom-6 right-6 bg-white border rounded-full px-4 py-2 shadow-lg text-sm">
+        <div className="fixed bottom-6 right-6 bg-white border rounded-full px-4 py-2 text-sm">
           Uploading...
         </div>
       )}
 
-      {/* ---------- Simple Image Modal (no zoom/pan) ---------- */}
+      {/* Modal */}
       {imageModalOpen && imageModalUrl && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/70"
-            onClick={closeImageModal}
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            className="relative z-70 max-w-[90vw] max-h-[90vh] mx-4"
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70" onClick={closeImageModal} />
+          <div className="relative max-w-[90vw] max-h-[90vh] mx-4 flex items-center justify-center">
             <button
               onClick={closeImageModal}
-              className="absolute right-3 top-3 z-50 bg-white/90 p-2 rounded-md shadow"
-              title="Close"
+              className="absolute right-3 top-3 bg-white/90 p-2 rounded-md"
+              aria-label="Close preview"
             >
               ✕
             </button>
@@ -489,10 +393,10 @@ const FPage = () => {
               <img
                 src={imageModalUrl}
                 alt="preview"
-                className="max-w-full max-h-[80vh] object-contain"
+                className="max-w-full max-h-[80vh] object-contain mx-auto"
               />
             </div>
-          </motion.div>
+          </div>
         </div>
       )}
     </div>
